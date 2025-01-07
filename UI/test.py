@@ -193,14 +193,21 @@ def weighted_emotion_prediction(face_probs, audio_probs, threshold=0.5):
 def capture_image(cap):
     """Capture and process a frame from the camera."""
     ret, frame = cap.read()
-    if ret:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        st.session_state.captured_face = frame_rgb
-        st.session_state.capture_timestamp = datetime.now().strftime("%H:%M:%S")
-        st.session_state.camera_active = False
-        st.session_state.step = 2
-        return True
-    return False
+    if not ret:
+        st.error("❌ Camera not accessible, trying a different index...")
+        cap.release()
+        cap = cv2.VideoCapture(1)  # Try with index 1 or another value
+        ret, frame = cap.read()
+        if not ret:
+            st.error("❌ Camera still not accessible.")
+            return False
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    st.session_state.captured_face = frame_rgb
+    st.session_state.capture_timestamp = datetime.now().strftime("%H:%M:%S")
+    st.session_state.camera_active = False
+    st.session_state.step = 2
+    return True
+
 
 def recommend_songs(emotion):
     """Get song recommendations based on detected emotion."""
