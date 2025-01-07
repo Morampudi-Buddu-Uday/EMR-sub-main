@@ -11,6 +11,7 @@ import requests
 import os
 from datetime import datetime
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+import cv2
 
 # Set page configuration
 st.set_page_config(
@@ -49,47 +50,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin: 10px 0;
     }
-    .song-card {
-        background-color: #00000;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        margin: 8px 0;
-        transition: transform 0.2s ease;
-    }
-    .song-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
-    .step-header {
-        color: #1f77b4;
-        margin-bottom: 1rem;
-    }
-    .progress-container {
-        margin: 1rem 0;
-        padding: 1rem;
-        background-color: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    }
-    .disabled-step {
-        opacity: 0.6;
-        pointer-events: none;
-    }
-    .success-message {
-        color: #4CAF50;
-        font-weight: bold;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 10px 0;
-    }
-    .error-message {
-        color: #f44336;
-        font-weight: bold;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 10px 0;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -98,66 +58,47 @@ st.markdown("""
 def download_model(url, save_path):
     """Download model if it does not exist."""
     if not os.path.exists(save_path):
-        print(f"Downloading model from {url}...")
-        response = requests.get(url)
+        response = requests.get(url, stream=True)
         with open(save_path, 'wb') as f:
-            f.write(response.content)
-        print(f"Model saved to {save_path}")
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
-# Modify the load_models function for proper model initialization
 @st.cache_resource
 def load_models():
-    # TensorFlow: Clear any existing session
+    """Load the face and audio emotion recognition models."""
     tf.keras.backend.clear_session()
 
-    # Define model URLs and paths
     face_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/face_emotion_recognition_model1.h5"
     audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
+
     face_model_path = "Models/face_emotion_recognition_model1.h5"
     audio_model_path = "Models/Emotion_Voice_Detection_Model1.h5"
 
-    # Create directory for models if not exists
     os.makedirs("Models", exist_ok=True)
 
-    # Download models if not already present
     download_model(face_model_url, face_model_path)
     download_model(audio_model_url, audio_model_path)
 
-    # Load models after clearing the session to ensure proper memory management
     try:
         face_model = tf.keras.models.load_model(face_model_path)
         audio_model = tf.keras.models.load_model(audio_model_path)
     except Exception as e:
-        print(f"Error loading model: {e}")
+        st.error(f"Failed to load models: {e}")
         raise
 
-    # Return the loaded models
     return face_model, audio_model
-# Emotion labels with corresponding emojis
+
+# Load models
+face_model, audio_model = load_models()
+
+# Emotion labels with emojis
 emotions = {
     'Neutral': '😐',
     'Happy': '😊',
     'Sad': '😢',
     'Angry': '😠'
 }
-
-# Initialize session state
-session_state_vars = {
-    'camera_active': False,
-    'captured_face': None,
-    'audio_recording_active': False,
-    'audio_input': None,
-    'audio_sample_rate': None,
-    'face_prediction': None,
-    'audio_prediction': None,
-    'capture_timestamp': None,
-    'step': 1,
-    'analyzing': False
-}
-
-for var, default_value in session_state_vars.items():
-    if var not in st.session_state:
-        st.session_state[var] = default_value
 
 # Helper functions
 def preprocess_frame(frame, target_size=(128, 128)):
@@ -172,189 +113,134 @@ def preprocess_audio(audio, sr=22050, n_mfcc=40):
     mfccs_mean = np.mean(mfccs.T, axis=0)
     return np.expand_dims(mfccs_mean, axis=0)
 
-def dynamic_weight_adjustment(face_probs, audio_probs):
-    """Adjust weights dynamically based on model confidence."""
-    face_confidence = np.max(face_probs)
-    audio_confidence = np.max(audio_probs)
-    total_confidence = face_confidence + audio_confidence
-    face_weight = face_confidence / total_confidence
-    audio_weight = audio_confidence / total_confidence
-    return face_weight, audio_weight
-
-def weighted_emotion_prediction(face_probs, audio_probs, threshold=0.5):
+def weighted_emotion_prediction(face_probs, audio_probs):
     """Combine face and audio predictions with dynamic weighting."""
-    face_weight, audio_weight = dynamic_weight_adjustment(face_probs, audio_probs)
+    face_weight, audio_weight = 0.5, 0.5  # Equal weight for simplicity
     final_probs = face_weight * face_probs + audio_weight * audio_probs
-    if np.max(final_probs) < threshold:
-        return "Neutral", final_probs
-    else:
-        final_emotion_index = np.argmax(final_probs)
-        return list(emotions.keys())[final_emotion_index], final_probs
+    final_emotion_index = np.argmax(final_probs)
+    return list(emotions.keys())[final_emotion_index], final_probs
 
-# Emotion analysis function using WebRTC video stream
+# Video Transformer for WebRTC
 class VideoTransformer(VideoTransformerBase):
     def _init_(self):
         self.frame = None
 
     def transform(self, frame):
         self.frame = frame.to_ndarray(format="bgr24")
+        st.session_state.captured_face = self.frame
         return self.frame
 
+# App layout
+st.title("🎭 Emotion Recognition System")
+st.markdown("### Discover your emotion and get the perfect music recommendation!")
+
 # Step 1: Facial Capture
-st.title("🎭 Emotion Recognition and Music Recommendation System")
-st.markdown("### Let's discover your emotion and find the perfect music for your mood!")
+st.markdown("### 📸 Step 1: Facial Capture")
+webrtc_ctx = webrtc_streamer(
+    key="face_capture",
+    mode=WebRtcMode.SENDRECV,
+    video_transformer_factory=VideoTransformer
+)
 
-col1, col2, col3 = st.columns([1, 1, 1])
+if webrtc_ctx.video_transformer:
+    st.session_state.captured_face = webrtc_ctx.video_transformer.frame
 
-# Step 1: Facial Capture using WebRTC
-with col1:
-    st.markdown("### 📸 Step 1: Facial Capture")
-    if st.session_state.step == 1:
-        webrtc_streamer(key="face_capture", mode=WebRtcMode.SENDRECV, video_transformer_factory=VideoTransformer)
+# Step 2: Voice Recording
+st.markdown("### 🎤 Step 2: Voice Recording")
+if st.button("🎙 Record Audio (5s)", key="record_audio"):
+    with st.spinner("Recording..."):
+        audio_data = []
+        duration = 5
+        sr = 22050
 
-# Step 2: Audio Recording
-with col2:
-    st.markdown("### 🎤 Step 2: Voice Recording")
-    if st.session_state.step >= 2:
-        if st.button("🎙 Record Audio (5s)", key="record_audio"):
-            with st.spinner("Recording..."):
-                audio_data = []
-                duration = 5
-                sr = 22050
+        def audio_callback(indata, frames, time, status):
+            audio_data.append(indata.copy())
 
-                def audio_callback(indata, frames, time, status):
-                    audio_data.append(indata.copy())
+        with sd.InputStream(samplerate=sr, channels=1, callback=audio_callback):
+            time.sleep(duration)
 
-                with sd.InputStream(samplerate=sr, channels=1, callback=audio_callback):
-                    st.info("🗣 Please say: 'I am testing the emotion recognition system'")
-                    time.sleep(duration)
+        audio = np.concatenate(audio_data).flatten()
+        st.session_state.audio_input = audio
+        st.session_state.audio_sample_rate = sr
+        st.success("✅ Audio recorded successfully!")
 
-                audio = np.concatenate(audio_data).flatten()
-                st.session_state.audio_input = audio  # Store audio in session state
-                st.session_state.audio_sample_rate = sr
-                st.session_state.step = 3
-
-                # Save and play audio
-                wav_buffer = io.BytesIO()
-                sf.write(wav_buffer, audio, sr, format='WAV')
-                wav_buffer.seek(0)
-                st.session_state.audio_buffer = wav_buffer  # Store the buffer in session state
-                st.success("✅ Audio recorded successfully!")
-                st.rerun()  # Rerun to persist the audio in session state
-                
-        # Playback the recorded audio if available
-        if 'audio_buffer' in st.session_state:
-            st.audio(st.session_state.audio_buffer, format="audio/wav")
-    else:
-        st.info("📸 Please complete Step 1 first")
-
+        wav_buffer = io.BytesIO()
+        sf.write(wav_buffer, audio, sr, format='WAV')
+        wav_buffer.seek(0)
+        st.audio(wav_buffer, format="audio/wav")
 
 # Step 3: Emotion Analysis
-with col3:
-    st.markdown("### 🎯 Step 3: Emotion Analysis")
-    if st.session_state.step >= 3:
-        if not st.session_state.analyzing and st.button("🔍 Analyze Emotion", key="analyze_emotion"):
-            st.session_state.analyzing = True
-            with st.spinner("Analyzing your emotion..."):
-                # Preprocess inputs
-                face_input = preprocess_frame(st.session_state.captured_face)
-                audio_input = preprocess_audio(st.session_state.audio_input, sr=st.session_state.audio_sample_rate)
+st.markdown("### 🎯 Step 3: Emotion Analysis")
+if st.session_state.captured_face is not None and 'audio_input' in st.session_state:
+    if st.button("🔍 Analyze Emotion"):
+        with st.spinner("Analyzing..."):
+            face_input = preprocess_frame(st.session_state.captured_face)
+            audio_input = preprocess_audio(st.session_state.audio_input, sr=st.session_state.audio_sample_rate)
 
-                # Get predictions from both models
-                face_probs = face_model.predict(face_input)
-                audio_probs = audio_model.predict(audio_input)
+            face_probs = face_model.predict(face_input)
+            audio_probs = audio_model.predict(audio_input)
 
-                # Get individual emotions and confidence scores
-                face_emotion_index = np.argmax(face_probs)
-                audio_emotion_index = np.argmax(audio_probs)
+            final_emotion, _ = weighted_emotion_prediction(face_probs, audio_probs)
 
-                face_emotion = list(emotions.keys())[face_emotion_index]
-                audio_emotion = list(emotions.keys())[audio_emotion_index]
+            st.success(f"🎭 Final Emotion: {emotions[final_emotion]} {final_emotion}")
+else:
+    st.info("Please capture your face and record your voice before analysis.")
 
-                face_confidence = face_probs[0][face_emotion_index]
-                audio_confidence = audio_probs[0][audio_emotion_index]
+# Step 4: Music Recommendation
+st.markdown("### 🎵 Step 4: Music Recommendation")
+if 'final_emotion' in st.session_state:
+    emotion = st.session_state.get('final_emotion', None)
+    if emotion:
+        st.markdown(f"Based on your emotion ({emotions[emotion]} {emotion}), here are some music recommendations:")
 
-                # Display individual results
-                st.markdown(f"""
-                    <div class="emotion-card">
-                        <h2 style='text-align: center; color: #1f77b4;'>
-                            {emotions[face_emotion]} {face_emotion} (Face)
-                        </h2>
-                        <p>Confidence: {face_confidence * 100:.2f}%</p>
-                    </div>
-                """, unsafe_allow_html=True)
+        # Example music recommendation logic
+        music_recommendations = {
+            'Neutral': ['Relaxing Instrumentals', 'Lo-fi Beats'],
+            'Happy': ['Upbeat Pop Songs', 'Feel-Good Hits'],
+            'Sad': ['Mellow Acoustic Tracks', 'Soothing Piano Music'],
+            'Angry': ['Rock Anthems', 'Energetic Workout Music']
+        }
 
-                st.markdown(f"""
-                    <div class="emotion-card">
-                        <h2 style='text-align: center; color: #1f77b4;'>
-                            {emotions[audio_emotion]} {audio_emotion} (Audio)
-                        </h2>
-                        <p>Confidence: {audio_confidence * 100:.2f}%</p>
-                    </div>
-                """, unsafe_allow_html=True)
-
-                # Confidence scores for both separately
-                st.markdown("#### Confidence Scores")
-                # Face model confidence scores
-                face_chart_data = pd.DataFrame(
-                    face_probs[0],
-                    index=emotions.keys(),
-                    columns=['Confidence']
-                )
-                st.subheader("Facial Emotion Confidence")
-                st.bar_chart(face_chart_data)
-
-                # Audio model confidence scores
-                audio_chart_data = pd.DataFrame(
-                    audio_probs[0],
-                    index=emotions.keys(),
-                    columns=['Confidence']
-                )
-                st.subheader("Audio Emotion Confidence")
-                st.bar_chart(audio_chart_data)
-
-                # Combine results with dynamic weighting
-                predicted_emotion, final_probs = weighted_emotion_prediction(face_probs, audio_probs)
-                
-                # Display combined result
-                st.markdown(f"""
-                    <div class="emotion-card">
-                        <h2 style='text-align: center; color: #1f77b4;'>
-                            {emotions[predicted_emotion]} {predicted_emotion} (Combined)
-                        </h2>
-                    </div>
-                """, unsafe_allow_html=True)
-
-                # Confidence scores for combined prediction
-                final_chart_data = pd.DataFrame(
-                    final_probs[0],
-                    index=emotions.keys(),
-                    columns=['Confidence']
-                )
-                st.subheader("Combined Emotion Confidence")
-                st.bar_chart(final_chart_data)
-
-                # Song recommendations
-                st.markdown("### 🎵 Recommended Songs")
-                recommendations = recommend_songs(predicted_emotion)
-                
-                if not recommendations.empty:
-                    for _, song in recommendations.iterrows():
-                        st.markdown(f"""
-                            <div class="song-card">
-                                <h4>{song['Title']}</h4>
-                                <p>Artist: {song['Artist']}</p>
-                                <a href="{song['SampleURL']}" target="_blank">▶ Listen</a>
-                            </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.warning("No song recommendations available for this emotion.")
+        recommendations = music_recommendations.get(emotion, [])
+        for i, track in enumerate(recommendations, 1):
+            st.markdown(f"{i}. {track}")
     else:
-        st.info("🎤 Please complete Step 2 first")
+        st.info("Please analyze your emotion first to see recommendations.")
+else:
+    st.info("Analyze your emotion to see personalized music recommendations.")
 
+# Utility Functions
+@st.cache
+def log_emotion_data(emotion, timestamp):
+    """Log detected emotion and timestamp into a CSV file."""
+    log_file = "emotion_log.csv"
+    entry = {"Timestamp": timestamp, "Emotion": emotion}
 
-# Reset button
-if st.button("🔄 Start Over"):
-    for key in st.session_state.keys():
-        del st.session_state[key]
-    st.rerun()
+    if not os.path.exists(log_file):
+        df = pd.DataFrame([entry])
+        df.to_csv(log_file, index=False)
+    else:
+        df = pd.read_csv(log_file)
+        df = df.append(entry, ignore_index=True)
+        df.to_csv(log_file, index=False)
+
+# Step 5: Log and History
+st.markdown("### 📜 Step 5: Emotion History")
+if st.button("📝 Log Emotion"):
+    if 'final_emotion' in st.session_state:
+        emotion = st.session_state['final_emotion']
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_emotion_data(emotion, timestamp)
+        st.success(f"Emotion logged: {emotion} at {timestamp}")
+    else:
+        st.warning("No emotion detected to log. Analyze your emotion first.")
+
+# Display emotion log
+if os.path.exists("emotion_log.csv"):
+    st.markdown("### 📚 Emotion History Log")
+    history_df = pd.read_csv("emotion_log.csv")
+    st.dataframe(history_df)
+
+# Conclusion
+st.markdown("### 🎉 Thank you for using the Emotion Recognition System!")
+st.markdown("Feel free to reach out for feedback or suggestions to improve the system.")
