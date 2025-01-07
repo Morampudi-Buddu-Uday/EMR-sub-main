@@ -6,4 +6,3 @@ librosa
 sounddevice
 pandas
 soundfile
-portaudio19-dev
