@@ -94,8 +94,8 @@ st.markdown("""
 # Load pre-trained models
 @st.cache_resource
 def load_models():
-    face_model = tf.keras.models.load_model('C://Users//uday//OneDrive//Desktop//emr_git//EMR-sub-main//Fuse//Models//face_emotion_recognition_model1.h5')
-    audio_model = tf.keras.models.load_model('C://Users//uday//OneDrive//Desktop//emr_git//EMR-sub-main//Fuse//Models//Emotion_Voice_Detection_Model1.h5')
+    face_model = tf.keras.models.load_model('Models/face_emotion_recognition_model1.h5')
+    audio_model = tf.keras.models.load_model('Models/Emotion_Voice_Detection_Model1.h5')
     return face_model, audio_model
 
 face_model, audio_model = load_models()
