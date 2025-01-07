@@ -114,8 +114,8 @@ def load_models():
     #audio_model = tf.keras.models.load_model('Models/Emotion_Voice_Detection_Model1.h5')
     #return face_model, audio_model
     # URLs to the models
-    face_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/blob/sub_main/UI/face_emotion_recognition_model1.h5"
-    audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/blob/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
+    face_model_url = "https://raw.githubusercontent.com/Morampudi-Buddu-Uday/EMR-sub-main/sub_main/UI/face_emotion_recognition_model1.h5"
+    audio_model_url = "https://raw.githubusercontent.com/Morampudi-Buddu-Uday/EMR-sub-main/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
 
     # Paths where the models will be saved
     face_model_path = "Models/face_emotion_recognition_model1.h5"
