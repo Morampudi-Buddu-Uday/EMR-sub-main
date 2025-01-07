@@ -196,7 +196,7 @@ def capture_image(cap):
     if not ret:
         st.error("❌ Camera not accessible, trying a different index...")
         cap.release()
-        cap = cv2.VideoCapture(1)  # Try with index 1 or another value
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # For Windows users
         ret, frame = cap.read()
         if not ret:
             st.error("❌ Camera still not accessible.")
