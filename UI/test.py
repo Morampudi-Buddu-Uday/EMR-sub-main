@@ -96,6 +96,7 @@ st.markdown("""
 # Load pre-trained models
 @st.cache_resource
 def download_model(url, save_path):
+    """Download model if it does not exist."""
     if not os.path.exists(save_path):
         print(f"Downloading model from {url}...")
         response = requests.get(url)
@@ -103,30 +104,35 @@ def download_model(url, save_path):
             f.write(response.content)
         print(f"Model saved to {save_path}")
 
-
+# Modify the load_models function for proper model initialization
+@st.cache_resource
 def load_models():
-    # URLs to the models
+    # TensorFlow: Clear any existing session
+    tf.keras.backend.clear_session()
+
+    # Define model URLs and paths
     face_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/face_emotion_recognition_model1.h5"
     audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
-
-    # Paths where the models will be saved
     face_model_path = "Models/face_emotion_recognition_model1.h5"
     audio_model_path = "Models/Emotion_Voice_Detection_Model1.h5"
 
-    # Create models directory if it doesn't exist
+    # Create directory for models if not exists
     os.makedirs("Models", exist_ok=True)
 
-    # Download models if they are not already present
+    # Download models if not already present
     download_model(face_model_url, face_model_path)
     download_model(audio_model_url, audio_model_path)
 
-    # Load the models
-    face_model = tf.keras.models.load_model(face_model_path)
-    audio_model = tf.keras.models.load_model(audio_model_path)
+    # Load models after clearing the session to ensure proper memory management
+    try:
+        face_model = tf.keras.models.load_model(face_model_path)
+        audio_model = tf.keras.models.load_model(audio_model_path)
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        raise
+
+    # Return the loaded models
     return face_model, audio_model
-
-face_model, audio_model = load_models()
-
 # Emotion labels with corresponding emojis
 emotions = {
     'Neutral': '😐',
