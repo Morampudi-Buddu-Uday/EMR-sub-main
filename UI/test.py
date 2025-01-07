@@ -118,11 +118,11 @@ def load_models():
     audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/blob/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
 
     # Paths where the models will be saved
-    face_model_path = "models/face_emotion_recognition_model1.h5"
-    audio_model_path = "models/Emotion_Voice_Detection_Model1.h5"
+    face_model_path = "Models/face_emotion_recognition_model1.h5"
+    audio_model_path = "Models/Emotion_Voice_Detection_Model1.h5"
 
     # Create models directory if it doesn't exist
-    os.makedirs("models", exist_ok=True)
+    os.makedirs("Models", exist_ok=True)
 
     # Download models if they are not already present
     download_model(face_model_url, face_model_path)
