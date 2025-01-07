@@ -8,6 +8,8 @@ import pandas as pd
 import time
 import soundfile as sf
 import io
+import requests
+import os
 from datetime import datetime
 
 # Set page configuration
@@ -93,9 +95,36 @@ st.markdown("""
 
 # Load pre-trained models
 @st.cache_resource
+def download_model(url, save_path):
+    if not os.path.exists(save_path):
+        print(f"Downloading model from {url}...")
+        response = requests.get(url)
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+        print(f"Model saved to {save_path}")
+
 def load_models():
-    face_model = tf.keras.models.load_model('Models/face_emotion_recognition_model1.h5')
-    audio_model = tf.keras.models.load_model('Models/Emotion_Voice_Detection_Model1.h5')
+    #face_model = tf.keras.models.load_model('Models/face_emotion_recognition_model1.h5')
+    #audio_model = tf.keras.models.load_model('Models/Emotion_Voice_Detection_Model1.h5')
+    #return face_model, audio_model
+    # URLs to the models
+    face_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/blob/sub_main/UI/Models/face_emotion_recognition_model1.h5"
+    audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/blob/sub_main/UI/Models/Emotion_Voice_Detection_Model1.h5"
+
+    # Paths where the models will be saved
+    face_model_path = "models/face_emotion_recognition_model1.h5"
+    audio_model_path = "models/Emotion_Voice_Detection_Model1.h5"
+
+    # Create models directory if it doesn't exist
+    os.makedirs("models", exist_ok=True)
+
+    # Download models if they are not already present
+    download_model(face_model_url, face_model_path)
+    download_model(audio_model_url, audio_model_path)
+
+    # Load the models
+    face_model = tf.keras.models.load_model(face_model_path)
+    audio_model = tf.keras.models.load_model(audio_model_path)
     return face_model, audio_model
 
 face_model, audio_model = load_models()
