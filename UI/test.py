@@ -103,11 +103,7 @@ def download_model(url, save_path):
             f.write(response.content)
         print(f"Model saved to {save_path}")
 
-def check_file_existence(path):
-        if os.path.exists(path):
-            print(f"File exists: {path}")
-        else:
-            print(f"File does NOT exist: {path}")
+
 
 def load_models():
     #face_model = tf.keras.models.load_model('Models/face_emotion_recognition_model1.h5')
@@ -127,17 +123,14 @@ def load_models():
     # Download models if they are not already present
     download_model(face_model_url, face_model_path)
     download_model(audio_model_url, audio_model_path)
-    # Check model paths
-    check_file_existence(face_model_path)
-    check_file_existence(audio_model_path)
+    
         # Load the models
     face_model = tf.keras.models.load_model(face_model_path)
     audio_model = tf.keras.models.load_model(audio_model_path)
     return face_model, audio_model
 
 face_model, audio_model = load_models()
-check_file_existence(face_model)
-check_file_existence(audio_model)
+
 
 # Emotion labels with corresponding emojis
 emotions = {
