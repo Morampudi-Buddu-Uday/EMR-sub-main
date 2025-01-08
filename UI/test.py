@@ -249,7 +249,7 @@ with col1:
             st.session_state.camera_active = not st.session_state.camera_active
 
         if st.session_state.camera_active:
-            cap = cv2.VideoCapture(1)
+            cap = cv2.VideoCapture(0)
             if not cap.isOpened():
                 st.error("❌ Camera access failed!")
             else:
