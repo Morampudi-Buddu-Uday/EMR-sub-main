@@ -1,4 +1,5 @@
 import streamlit as st
+import cv2
 import numpy as np
 import tensorflow as tf
 import librosa
@@ -10,7 +11,6 @@ import io
 import requests
 import os
 from datetime import datetime
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
 
 # Set page configuration
 st.set_page_config(
@@ -96,7 +96,6 @@ st.markdown("""
 # Load pre-trained models
 @st.cache_resource
 def download_model(url, save_path):
-    """Download model if it does not exist."""
     if not os.path.exists(save_path):
         print(f"Downloading model from {url}...")
         response = requests.get(url)
@@ -104,35 +103,35 @@ def download_model(url, save_path):
             f.write(response.content)
         print(f"Model saved to {save_path}")
 
-# Modify the load_models function for proper model initialization
-@st.cache_resource
-def load_models():
-    # TensorFlow: Clear any existing session
-    tf.keras.backend.clear_session()
 
-    # Define model URLs and paths
+
+def load_models():
+    #face_model = tf.keras.models.load_model('Models/face_emotion_recognition_model1.h5')
+    #audio_model = tf.keras.models.load_model('Models/Emotion_Voice_Detection_Model1.h5')
+    #return face_model, audio_model
+    # URLs to the models
     face_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/face_emotion_recognition_model1.h5"
     audio_model_url = "https://github.com/Morampudi-Buddu-Uday/EMR-sub-main/raw/refs/heads/sub_main/UI/Emotion_Voice_Detection_Model1.h5"
+
+    # Paths where the models will be saved
     face_model_path = "Models/face_emotion_recognition_model1.h5"
     audio_model_path = "Models/Emotion_Voice_Detection_Model1.h5"
 
-    # Create directory for models if not exists
+    # Create models directory if it doesn't exist
     os.makedirs("Models", exist_ok=True)
 
-    # Download models if not already present
+    # Download models if they are not already present
     download_model(face_model_url, face_model_path)
     download_model(audio_model_url, audio_model_path)
-
-    # Load models after clearing the session to ensure proper memory management
-    try:
-        face_model = tf.keras.models.load_model(face_model_path)
-        audio_model = tf.keras.models.load_model(audio_model_path)
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        raise
-
-    # Return the loaded models
+    
+        # Load the models
+    face_model = tf.keras.models.load_model(face_model_path)
+    audio_model = tf.keras.models.load_model(audio_model_path)
     return face_model, audio_model
+
+face_model, audio_model = load_models()
+
+
 # Emotion labels with corresponding emojis
 emotions = {
     'Neutral': '😐',
@@ -191,26 +190,91 @@ def weighted_emotion_prediction(face_probs, audio_probs, threshold=0.5):
         final_emotion_index = np.argmax(final_probs)
         return list(emotions.keys())[final_emotion_index], final_probs
 
-# Emotion analysis function using WebRTC video stream
-class VideoTransformer(VideoTransformerBase):
-    def init(self):
-        self.frame = None
+def capture_image(cap):
+    """Capture and process a frame from the camera."""
+    ret, frame = cap.read()
+    if not ret:
+        st.error("❌ Camera not accessible, trying a different index...")
+        cap.release()
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # For Windows users
+        ret, frame = cap.read()
+        if not ret:
+            st.error("❌ Camera still not accessible.")
+            return False
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    st.session_state.captured_face = frame_rgb
+    st.session_state.capture_timestamp = datetime.now().strftime("%H:%M:%S")
+    st.session_state.camera_active = False
+    st.session_state.step = 2
+    return True
 
-    def transform(self, frame):
-        self.frame = frame.to_ndarray(format="bgr24")
-        return self.frame
 
-# Step 1: Facial Capture
+def recommend_songs(emotion):
+    """Get song recommendations based on detected emotion."""
+    try:
+        df = pd.read_csv("C://Users//uday//OneDrive//Desktop//EMR//UI//songs.csv")
+        if 'MoodsStrSplit' not in df.columns:
+            raise ValueError("The 'MoodsStrSplit' column is missing in the CSV file.")
+        
+        recommended_songs = df[df['MoodsStrSplit'].str.contains(emotion, case=False, na=False)]
+        if emotion.lower() in ['angry', 'sad']:
+            additional_songs = df[df['MoodsStrSplit'].str.contains("happy", case=False, na=False)]
+            recommended_songs = pd.concat([recommended_songs, additional_songs])
+        
+        return recommended_songs[['Artist', 'Title', 'SampleURL']].head(10)
+    except Exception as e:
+        st.error(f"Error in song recommendations: {str(e)}")
+        return pd.DataFrame()
+
+# App title and description
 st.title("🎭 Emotion Recognition and Music Recommendation System")
 st.markdown("### Let's discover your emotion and find the perfect music for your mood!")
 
+# Progress tracking
+#progress_placeholder = st.empty()
+#progress_value = (st.session_state.step - 1) * 33.33
+#progress_placeholder.progress(int(progress_value))
+
+# Create three columns for layout
 col1, col2, col3 = st.columns([1, 1, 1])
 
-# Step 1: Facial Capture using WebRTC
+# Step 1: Facial Capture
 with col1:
     st.markdown("### 📸 Step 1: Facial Capture")
+    camera_placeholder = st.empty()
+    button_placeholder = st.empty()
+    
     if st.session_state.step == 1:
-        webrtc_streamer(key="face_capture", mode=WebRtcMode.SENDRECV, video_transformer_factory=VideoTransformer)
+        if button_placeholder.button("Toggle Camera", key="toggle_camera"):
+            st.session_state.camera_active = not st.session_state.camera_active
+
+        if st.session_state.camera_active:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                st.error("❌ Camera access failed!")
+            else:
+                capture_button = st.button("📸 Capture", key="capture_button")
+                
+                while st.session_state.camera_active:
+                    ret, frame = cap.read()
+                    if ret:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        camera_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                        
+                        if capture_button:
+                            if capture_image(cap):
+                                st.success("✅ Image captured successfully!")
+                                st.rerun()
+                            break
+                    else:
+                        st.error("❌ Camera feed error!")
+                        break
+                cap.release()
+
+    # Display captured image
+    if st.session_state.captured_face is not None:
+        camera_placeholder.image(st.session_state.captured_face, use_container_width=True)
+        st.caption(f"Captured at {st.session_state.capture_timestamp}")
 
 # Step 2: Audio Recording
 with col2:
@@ -351,6 +415,7 @@ with col3:
                     st.warning("No song recommendations available for this emotion.")
     else:
         st.info("🎤 Please complete Step 2 first")
+
 
 
 # Reset button
